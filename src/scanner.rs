@@ -27,7 +27,6 @@ pub enum LexemeKind {
 
     UnterminatedString,
     InvalidNumberSign,
-    Poison,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,6 +211,13 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    fn scan_char(iter: Iter<u8>) -> ScanRes {
+        ScanRes {
+            kind: LexemeKind::CharLit,
+            slice_end: Scanner::advance_to_delimiter(iter),
+        }
+    }
+
     fn scan_string(mut iter: Iter<u8>) -> ScanRes {
         let mut escaping = false;
 
@@ -284,23 +290,17 @@ impl<'a> Scanner<'a> {
                         slice_end: potential_end,
                     }
                 }
+                b'\\' => Scanner::scan_char(peek_iter),
                 _ => ScanRes {
-                    kind: LexemeKind::Poison,
+                    kind: LexemeKind::InvalidNumberSign,
                     slice_end: Scanner::advance_to_delimiter(peek_iter),
                 },
             }
         } else {
             ScanRes {
-                kind: LexemeKind::Poison,
+                kind: LexemeKind::InvalidNumberSign,
                 slice_end: iter.as_slice().as_ptr(),
             }
-        }
-    }
-
-    fn _scan_poison(iter: Iter<u8>) -> ScanRes {
-        ScanRes {
-            kind: LexemeKind::Poison,
-            slice_end: iter.as_slice().as_ptr(),
         }
     }
 }
@@ -459,12 +459,25 @@ pub mod tests {
 
         let mut scanner = Scanner::new(src);
 
-
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringLit);
 
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringLit);
         scanner.next();
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::UnterminatedString);
+        assert_eq!(scanner.next(), None);
+    }
+
+    #[test]
+    fn test_char() {
+        let src = "#\\a #\\space #\\person-in-suit-levitating";
+
+        let mut scanner = Scanner::new(src);
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::CharLit);
+        scanner.next();
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::CharLit);
+        scanner.next();
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::CharLit);
         assert_eq!(scanner.next(), None);
     }
 }
