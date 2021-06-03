@@ -225,4 +225,18 @@ pub mod tests {
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::NewlineCrlf);
         assert_eq!(scanner.next(), None);
     }
+
+    #[test]
+    fn test_comment() {
+        let src = "\n ; hello world\r";
+
+        let mut scanner = Scanner::new(src);
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::NewlineLf);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::Whitespace);
+        let lex = scanner.next().unwrap();
+        assert_eq!(lex.slice.len(), 13);
+        assert_eq!(lex.kind, LexemeKind::Comment);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::NewlineCr);
+    }
 }
