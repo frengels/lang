@@ -181,7 +181,7 @@ impl<'a> Scanner<'a> {
         let mut peek_iter = iter.clone();
 
         while let Some(ch) = peek_iter.next() {
-            if ch.is_ascii_digit() {
+            if !ch.is_ascii_digit() {
                 break;
             }
 
@@ -391,5 +391,31 @@ pub mod tests {
         assert_eq!(lex.slice.len(), 13);
         assert_eq!(lex.kind, LexemeKind::Comment);
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::NewlineCr);
+    }
+
+    #[test]
+    fn test_int() {
+        let src = "123\n00013432500231";
+
+        let mut scanner = Scanner::new(src);
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::IntLit);
+        scanner.next();
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::IntLit);
+        assert_eq!(scanner.next(), None);
+    }
+
+    #[test]
+    fn test_float() {
+        let src = "0.1234\n0. 123432.0";
+
+        let mut scanner = Scanner::new(src);
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::FloatLit);
+        scanner.next();
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::FloatLit);
+        scanner.next();
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::FloatLit);
+        assert_eq!(scanner.next(), None);
     }
 }
