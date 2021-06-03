@@ -25,6 +25,8 @@ pub enum LexemeKind {
     StringLit,
     BoolLit,
 
+    UnterminatedString,
+    InvalidNumberSign,
     Poison,
 }
 
@@ -67,6 +69,10 @@ impl<'a> Scanner<'a> {
         Scanner {
             iter: src.as_bytes().iter(),
         }
+    }
+
+    pub unsafe fn as_str(&self) -> &str {
+        std::str::from_utf8_unchecked(self.iter.as_slice())
     }
 
     fn scan_whitespace(mut iter: Iter<u8>) -> ScanRes {
@@ -206,6 +212,31 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    fn scan_string(mut iter: Iter<u8>) -> ScanRes {
+        let mut escaping = false;
+
+        while let Some(ch) = iter.next() {
+            if *ch == b'\\' {
+                escaping = true;
+                continue;
+            }
+
+            if *ch == b'"' && !escaping {
+                return ScanRes {
+                    kind: LexemeKind::StringLit,
+                    slice_end: iter.as_slice().as_ptr(),
+                };
+            }
+
+            escaping = false;
+        }
+
+        ScanRes {
+            kind: LexemeKind::UnterminatedString,
+            slice_end: iter.as_slice().as_ptr(),
+        }
+    }
+
     fn scan_sign(mut iter: Iter<u8>) -> ScanRes {
         let ch = iter.next();
 
@@ -242,21 +273,23 @@ impl<'a> Scanner<'a> {
                             let lex_end = Scanner::advance_to_delimiter(peek_iter);
 
                             return ScanRes {
-                                kind: LexemeKind::Poison,
+                                kind: LexemeKind::InvalidNumberSign,
                                 slice_end: lex_end,
                             };
                         }
                     }
 
-                    ScanRes { kind: LexemeKind::BoolLit, slice_end: potential_end }
+                    ScanRes {
+                        kind: LexemeKind::BoolLit,
+                        slice_end: potential_end,
+                    }
                 }
                 _ => ScanRes {
                     kind: LexemeKind::Poison,
                     slice_end: Scanner::advance_to_delimiter(peek_iter),
                 },
             }
-        }
-        else {
+        } else {
             ScanRes {
                 kind: LexemeKind::Poison,
                 slice_end: iter.as_slice().as_ptr(),
@@ -313,6 +346,7 @@ impl<'a> Iterator for Scanner<'a> {
                 kind: LexemeKind::RBrace,
                 slice_end: iter.as_slice().as_ptr(),
             },
+            b'"' => Scanner::scan_string(iter),
             b'+' | b'-' => Scanner::scan_sign(iter),
             b'#' => Scanner::scan_number_sign(iter),
             x if x.is_ascii_digit() => Scanner::scan_number_continue(iter),
@@ -416,6 +450,21 @@ pub mod tests {
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::FloatLit);
         scanner.next();
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::FloatLit);
+        assert_eq!(scanner.next(), None);
+    }
+
+    #[test]
+    fn test_string() {
+        let src = "\"hello world\"\"hello \\\"frengels\\\"\"   \"hello unterminated";
+
+        let mut scanner = Scanner::new(src);
+
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringLit);
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringLit);
+        scanner.next();
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::UnterminatedString);
         assert_eq!(scanner.next(), None);
     }
 }
