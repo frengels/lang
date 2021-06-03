@@ -207,7 +207,6 @@ impl<'a> Scanner<'a> {
     }
 
     fn scan_sign(mut iter: Iter<u8>) -> ScanRes {
-
         let ch = iter.next();
 
         ch.map_or(
@@ -230,8 +229,39 @@ impl<'a> Scanner<'a> {
         )
     }
 
-    fn scan_number_sign(_iter: Iter<u8>) -> ScanRes {
-        todo!()
+    fn scan_number_sign(iter: Iter<u8>) -> ScanRes {
+        let mut peek_iter = iter.clone();
+
+        if let Some(ch) = peek_iter.next() {
+            match *ch {
+                b't' | b'f' => {
+                    let potential_end = peek_iter.as_slice().as_ptr();
+
+                    if let Some(ch) = peek_iter.next() {
+                        if !is_delimiter(*ch) {
+                            let lex_end = Scanner::advance_to_delimiter(peek_iter);
+
+                            return ScanRes {
+                                kind: LexemeKind::Poison,
+                                slice_end: lex_end,
+                            };
+                        }
+                    }
+
+                    ScanRes { kind: LexemeKind::BoolLit, slice_end: potential_end }
+                }
+                _ => ScanRes {
+                    kind: LexemeKind::Poison,
+                    slice_end: Scanner::advance_to_delimiter(peek_iter),
+                },
+            }
+        }
+        else {
+            ScanRes {
+                kind: LexemeKind::Poison,
+                slice_end: iter.as_slice().as_ptr(),
+            }
+        }
     }
 
     fn _scan_poison(iter: Iter<u8>) -> ScanRes {
