@@ -17,6 +17,14 @@ pub enum LexemeKind {
     LBrace,
     RBrace,
 
+    Identifier,
+
+    IntLit,
+    FloatLit,
+    CharLit,
+    StringLit,
+    BoolLit,
+
     Poison,
 }
 
@@ -28,6 +36,20 @@ pub struct Lexeme<'a> {
 
 fn is_newline_start(ch: u8) -> bool {
     ch == b'\r' || ch == b'\n'
+}
+
+fn is_atmosphere_start(ch: u8) -> bool {
+    match ch {
+        b' ' | b'\t' | b';' => true,
+        x => is_newline_start(x),
+    }
+}
+
+fn is_delimiter(ch: u8) -> bool {
+    match ch {
+        b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'"' => true,
+        x => is_atmosphere_start(x),
+    }
 }
 
 pub struct ScanRes {
@@ -114,7 +136,105 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn scan_poison(iter: Iter<u8>) -> ScanRes {
+    fn advance_to_delimiter(mut iter: Iter<u8>) -> *const u8 {
+        let mut peek_iter = iter.clone();
+
+        while let Some(ch) = peek_iter.next() {
+            if is_delimiter(*ch) {
+                break;
+            }
+
+            iter = peek_iter.clone();
+        }
+
+        iter.as_slice().as_ptr()
+    }
+
+    fn scan_identifier_continue(iter: Iter<u8>) -> ScanRes {
+        let slice_end = Scanner::advance_to_delimiter(iter);
+        ScanRes {
+            kind: LexemeKind::Identifier,
+            slice_end,
+        }
+    }
+
+    fn scan_float(mut iter: Iter<u8>) -> ScanRes {
+        let mut peek_iter = iter.clone();
+
+        while let Some(ch) = peek_iter.next() {
+            if is_delimiter(*ch) {
+                break;
+            } else if !ch.is_ascii_digit() {
+                return Scanner::scan_identifier_continue(peek_iter);
+            }
+
+            iter = peek_iter.clone();
+        }
+
+        ScanRes {
+            kind: LexemeKind::FloatLit,
+            slice_end: iter.as_slice().as_ptr(),
+        }
+    }
+
+    fn scan_number_continue(mut iter: Iter<u8>) -> ScanRes {
+        let mut peek_iter = iter.clone();
+
+        while let Some(ch) = peek_iter.next() {
+            if ch.is_ascii_digit() {
+                break;
+            }
+
+            iter = peek_iter.clone();
+        }
+
+        peek_iter = iter.clone();
+
+        if let Some(ch) = peek_iter.next() {
+            if *ch == b'.' {
+                return Scanner::scan_float(peek_iter);
+            } else if !is_delimiter(*ch) {
+                return Scanner::scan_identifier_continue(peek_iter);
+            }
+
+            // fallthrough for delimiter
+        }
+
+        ScanRes {
+            kind: LexemeKind::IntLit,
+            slice_end: iter.as_slice().as_ptr(),
+        }
+    }
+
+    fn scan_sign(mut iter: Iter<u8>) -> ScanRes {
+
+        let ch = iter.next();
+
+        ch.map_or(
+            ScanRes {
+                kind: LexemeKind::Identifier,
+                slice_end: iter.as_slice().as_ptr(),
+            },
+            |ch| {
+                if ch.is_ascii_digit() {
+                    Scanner::scan_number_continue(iter)
+                } else if is_delimiter(*ch) {
+                    ScanRes {
+                        kind: LexemeKind::Identifier,
+                        slice_end: iter.as_slice().as_ptr(),
+                    }
+                } else {
+                    Scanner::scan_identifier_continue(iter)
+                }
+            },
+        )
+    }
+
+    fn scan_number_sign(_iter: Iter<u8>) -> ScanRes {
+        todo!()
+    }
+
+    fn _scan_poison(iter: Iter<u8>) -> ScanRes {
         ScanRes {
             kind: LexemeKind::Poison,
             slice_end: iter.as_slice().as_ptr(),
@@ -163,7 +283,10 @@ impl<'a> Iterator for Scanner<'a> {
                 kind: LexemeKind::RBrace,
                 slice_end: iter.as_slice().as_ptr(),
             },
-            _ => Scanner::scan_poison(iter),
+            b'+' | b'-' => Scanner::scan_sign(iter),
+            b'#' => Scanner::scan_number_sign(iter),
+            x if x.is_ascii_digit() => Scanner::scan_number_continue(iter),
+            _ => Scanner::scan_identifier_continue(iter),
         };
 
         let ptrs = self.iter.as_slice().as_ptr_range();
