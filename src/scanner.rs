@@ -24,6 +24,7 @@ pub enum LexemeKind {
     CharLit,
     StringLit,
     BoolLit,
+    KeywordLit,
 
     UnterminatedString,
     InvalidNumberSign,
@@ -211,6 +212,13 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    fn scan_keyword(iter: Iter<u8>) -> ScanRes {
+        ScanRes {
+            kind: LexemeKind::KeywordLit,
+            slice_end: Scanner::advance_to_delimiter(iter),
+        }
+    }
+
     fn scan_char(iter: Iter<u8>) -> ScanRes {
         ScanRes {
             kind: LexemeKind::CharLit,
@@ -291,6 +299,7 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 b'\\' => Scanner::scan_char(peek_iter),
+                b':' => Scanner::scan_keyword(peek_iter),
                 _ => ScanRes {
                     kind: LexemeKind::InvalidNumberSign,
                     slice_end: Scanner::advance_to_delimiter(peek_iter),
@@ -479,5 +488,14 @@ pub mod tests {
         scanner.next();
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::CharLit);
         assert_eq!(scanner.next(), None);
+    }
+
+    #[test]
+    fn test_keyword() {
+        let src = "#:hello-there #: #:that-was-an-empty-one";
+
+        let mut scanner = Scanner::new(src);
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::KeywordLit);
     }
 }
