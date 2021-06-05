@@ -28,6 +28,16 @@ pub enum LexemeKind {
 
     UnterminatedString,
     InvalidNumberSign,
+
+    LString,
+    RString,
+    StringContent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScannerMode {
+    Regular,
+    String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,12 +72,14 @@ pub struct ScanRes {
 #[derive(Debug)]
 pub struct Scanner<'a> {
     iter: Iter<'a, u8>,
+    mode: ScannerMode,
 }
 
 impl<'a> Scanner<'a> {
     pub fn new(src: &'a str) -> Self {
         Scanner {
             iter: src.as_bytes().iter(),
+            mode: ScannerMode::Regular,
         }
     }
 
@@ -226,6 +238,68 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    fn scan_string_start(&mut self, iter: Iter<u8>) -> ScanRes {
+        self.mode = ScannerMode::String;
+
+        ScanRes {
+            kind: LexemeKind::LString,
+            slice_end: iter.as_slice().as_ptr(),
+        }
+    }
+
+    fn scan_string_continue(&mut self, ch: u8, mut iter: Iter<u8>) -> ScanRes {
+        let mut escaping = false;
+
+        match ch {
+            b'"' => {
+                self.mode = ScannerMode::Regular;
+                return ScanRes {
+                    kind: LexemeKind::RString,
+                    slice_end: iter.as_slice().as_ptr(),
+                };
+            }
+            b'\r' => return Scanner::scan_cr(iter),
+            b'\n' => {
+                return ScanRes {
+                    kind: LexemeKind::NewlineLf,
+                    slice_end: iter.as_slice().as_ptr(),
+                }
+            }
+            _ => {}
+        }
+
+        let mut peek_iter = iter.clone();
+        while let Some(ch) = peek_iter.next() {
+            if *ch == b'\\' {
+                escaping = true;
+                iter = peek_iter.clone();
+                continue;
+            }
+
+            if *ch == b'"' && !escaping {
+                return ScanRes {
+                    kind: LexemeKind::StringContent,
+                    slice_end: iter.as_slice().as_ptr(),
+                };
+            }
+
+            if is_newline_start(*ch) {
+                return ScanRes {
+                    kind: LexemeKind::StringContent,
+                    slice_end: iter.as_slice().as_ptr(),
+                };
+            }
+
+            escaping = false;
+            iter = peek_iter.clone();
+        }
+
+        ScanRes {
+            kind: LexemeKind::StringContent,
+            slice_end: iter.as_slice().as_ptr(),
+        }
+    }
+
     fn scan_string(mut iter: Iter<u8>) -> ScanRes {
         let mut escaping = false;
 
@@ -318,49 +392,62 @@ impl<'a> Iterator for Scanner<'a> {
     type Item = Lexeme<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut iter = self.iter.clone();
+        let res = match self.mode {
+            ScannerMode::String => {
+                let mut iter = self.iter.clone();
 
-        let ch = iter.next()?;
+                let ch = iter.next()?;
+                Some(self.scan_string_continue(*ch, iter))
+            }
+            ScannerMode::Regular => {
+                let mut iter = self.iter.clone();
 
-        let res = match *ch {
-            b' ' => Scanner::scan_whitespace(iter),
-            b'\t' => Scanner::scan_tab(iter),
-            b'\r' => Scanner::scan_cr(iter),
-            b';' => Scanner::scan_comment(iter),
-            b'\n' => ScanRes {
-                kind: LexemeKind::NewlineLf,
-                slice_end: iter.as_slice().as_ptr(),
-            },
-            b'(' => ScanRes {
-                kind: LexemeKind::LParen,
-                slice_end: iter.as_slice().as_ptr(),
-            },
-            b')' => ScanRes {
-                kind: LexemeKind::RParen,
-                slice_end: iter.as_slice().as_ptr(),
-            },
-            b'[' => ScanRes {
-                kind: LexemeKind::LBracket,
-                slice_end: iter.as_slice().as_ptr(),
-            },
-            b']' => ScanRes {
-                kind: LexemeKind::RBracket,
-                slice_end: iter.as_slice().as_ptr(),
-            },
-            b'{' => ScanRes {
-                kind: LexemeKind::LBrace,
-                slice_end: iter.as_slice().as_ptr(),
-            },
-            b'}' => ScanRes {
-                kind: LexemeKind::RBrace,
-                slice_end: iter.as_slice().as_ptr(),
-            },
-            b'"' => Scanner::scan_string(iter),
-            b'+' | b'-' => Scanner::scan_sign(iter),
-            b'#' => Scanner::scan_number_sign(iter),
-            x if x.is_ascii_digit() => Scanner::scan_number_continue(iter),
-            _ => Scanner::scan_identifier_continue(iter),
-        };
+                let ch = iter.next()?;
+
+                let res = match *ch {
+                    b' ' => Scanner::scan_whitespace(iter),
+                    b'\t' => Scanner::scan_tab(iter),
+                    b'\r' => Scanner::scan_cr(iter),
+                    b';' => Scanner::scan_comment(iter),
+                    b'\n' => ScanRes {
+                        kind: LexemeKind::NewlineLf,
+                        slice_end: iter.as_slice().as_ptr(),
+                    },
+                    b'(' => ScanRes {
+                        kind: LexemeKind::LParen,
+                        slice_end: iter.as_slice().as_ptr(),
+                    },
+                    b')' => ScanRes {
+                        kind: LexemeKind::RParen,
+                        slice_end: iter.as_slice().as_ptr(),
+                    },
+                    b'[' => ScanRes {
+                        kind: LexemeKind::LBracket,
+                        slice_end: iter.as_slice().as_ptr(),
+                    },
+                    b']' => ScanRes {
+                        kind: LexemeKind::RBracket,
+                        slice_end: iter.as_slice().as_ptr(),
+                    },
+                    b'{' => ScanRes {
+                        kind: LexemeKind::LBrace,
+                        slice_end: iter.as_slice().as_ptr(),
+                    },
+                    b'}' => ScanRes {
+                        kind: LexemeKind::RBrace,
+                        slice_end: iter.as_slice().as_ptr(),
+                    },
+                    //b'"' => Scanner::scan_string(iter),
+                    b'"' => self.scan_string_start(iter),
+                    b'+' | b'-' => Scanner::scan_sign(iter),
+                    b'#' => Scanner::scan_number_sign(iter),
+                    x if x.is_ascii_digit() => Scanner::scan_number_continue(iter),
+                    _ => Scanner::scan_identifier_continue(iter),
+                };
+
+                Some(res)
+            }
+        }?;
 
         let ptrs = self.iter.as_slice().as_ptr_range();
         let len = unsafe { res.slice_end.offset_from(ptrs.start) };
@@ -468,11 +555,23 @@ pub mod tests {
 
         let mut scanner = Scanner::new(src);
 
-        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringLit);
+        println!("{}", unsafe { scanner.as_str() });
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::LString);
+        println!("{}", unsafe { scanner.as_str() });
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringContent);
+        println!("{}", unsafe { scanner.as_str() });
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::RString);
+        println!("{}", unsafe { scanner.as_str() });
 
-        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringLit);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::LString);
+        println!("{}", unsafe { scanner.as_str() });
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringContent);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::RString);
+
         scanner.next();
-        assert_eq!(scanner.next().unwrap().kind, LexemeKind::UnterminatedString);
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::LString);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringContent);
         assert_eq!(scanner.next(), None);
     }
 
