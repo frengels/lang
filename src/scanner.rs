@@ -551,20 +551,29 @@ pub mod tests {
 
     #[test]
     fn test_string() {
-        let src = "\"hello world\"\"hello \\\"frengels\\\"\"   \"hello unterminated";
+        let src = "\"\r\n\" \"first\nsecond\"  \"hello world\"\"hello \\\"frengels\\\"\"   \"hello unterminated";
 
         let mut scanner = Scanner::new(src);
 
-        println!("{}", unsafe { scanner.as_str() });
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::LString);
-        println!("{}", unsafe { scanner.as_str() });
-        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringContent);
-        println!("{}", unsafe { scanner.as_str() });
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::NewlineCrlf);
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::RString);
-        println!("{}", unsafe { scanner.as_str() });
+
+        scanner.next();
 
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::LString);
-        println!("{}", unsafe { scanner.as_str() });
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringContent);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::NewlineLf);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringContent);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::RString);
+        
+        scanner.next();
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::LString);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringContent);
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::RString);
+
+        assert_eq!(scanner.next().unwrap().kind, LexemeKind::LString);
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::StringContent);
         assert_eq!(scanner.next().unwrap().kind, LexemeKind::RString);
 
